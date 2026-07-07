@@ -1,12 +1,14 @@
 {
   "dataset": {
-    "original_records": 55000,
-    "injected_duplicates": 13500,
-    "total_records": 68500,
-    "duplicate_ratio": 19.7
+    "clean_base_records": 54394,
+    "natural_duplicates_removed": 606,
+    "injected_duplicates": 13250,
+    "total_records": 67644,
+    "duplicate_ratio": 19.6,
+    "note": "Base records are guaranteed unique on (given_name, family_name, date_of_birth, gender). Every duplicate in this dataset is labeled in the ground truth. No unlabeled duplicates exist."
   },
   "duplicate_types": {
-    "EXACT_DUPLICATE": 2750,
+    "EXACT_DUPLICATE": 2500,
     "PHONETIC_VARIATION": 2000,
     "SPELLING_ERROR": 2000,
     "DOB_VARIATION": 1500,
@@ -18,54 +20,63 @@
   },
   "difficulty_distribution": {
     "MEDIUM": 6500,
-    "EASY": 3750,
+    "EASY": 3500,
     "HARD": 3250
   },
   "type_details": {
     "EXACT_DUPLICATE": {
-      "description": "Identical record with different UUID. Simulates re-registration by same or different field worker.",
-      "expected_detection": "Should be caught with >95% confidence",
-      "count": 2750
+      "count": 2500,
+      "difficulty": "EASY",
+      "description": "Identical name, DOB, gender, GPS. Different UUID and cycle. Simulates cross-cycle re-registration.",
+      "what_catches_it": "Any basic matching on name+DOB should detect these."
     },
     "PHONETIC_VARIATION": {
-      "description": "Arabic/French transliteration variations (Mahamat→Muhammad, Khadija→Khadidja, Fatima→Fadima). Common in multilingual Chad context.",
-      "expected_detection": "Requires Soundex/Double Metaphone to catch",
-      "count": 2000
+      "count": 2000,
+      "difficulty": "MEDIUM",
+      "description": "Arabic/French transliteration: Mahamat->Muhammad, Khadija->Khadidja, Fatima->Fadima.",
+      "what_catches_it": "Soundex or Double Metaphone phonetic encoding."
     },
     "SPELLING_ERROR": {
-      "description": "Typos: character swaps (Ibrahmi→Ibrahim), dropped letters (Mahamat→Mahaet), doubled letters (Khadidja→Khaddidja), substitutions (similar-sounding chars).",
-      "expected_detection": "Requires Jaro-Winkler or Levenshtein with threshold tuning",
-      "count": 2000
+      "count": 2000,
+      "difficulty": "MEDIUM",
+      "description": "Typos: character swaps (Ibrahmi->Ibrahim), dropped/doubled letters, similar-char substitution.",
+      "what_catches_it": "Jaro-Winkler or Levenshtein with appropriate threshold."
     },
     "NAME_ABBREVIATION": {
-      "description": "Shortened names: Ibrahim→Ibra, Abdoulaye→Abdou, Jean-Pierre→Jean. Common in informal registration.",
-      "expected_detection": "Hardest for string similarity - needs prefix matching or containment check",
-      "count": 1000
+      "count": 1000,
+      "difficulty": "HARD",
+      "description": "Shortened names: Ibrahim->Ibra, Abdoulaye->Abdou, Jean-Pierre->Jean.",
+      "what_catches_it": "Prefix matching or substring containment check."
     },
     "NAME_ORDER_SWAP": {
-      "description": "Given and family name recorded in wrong order. E.g., 'Mahamat Deby' registered as 'Deby Mahamat'.",
-      "expected_detection": "Needs cross-field comparison (compare given1 with family2 and vice versa)",
-      "count": 1000
+      "count": 1000,
+      "difficulty": "MEDIUM",
+      "description": "Given/family name reversed: 'Mahamat Deby' registered as 'Deby Mahamat'.",
+      "what_catches_it": "Cross-field comparison (given1 vs family2 and vice versa)."
     },
     "DOB_VARIATION": {
-      "description": "Date of birth transcription errors: off-by-one day/month, day-month swap (05/03→03/05), year ±1.",
-      "expected_detection": "DOB fuzzy matching with ±tolerance window",
-      "count": 1500
+      "count": 1500,
+      "difficulty": "MEDIUM",
+      "description": "DOB transcription errors: off-by-one day/month, day-month swap, year +/-1.",
+      "what_catches_it": "DOB fuzzy matching with tolerance window."
     },
     "GPS_NEARBY": {
-      "description": "Identical name but GPS coordinates differ by 20-150 meters. Simulates different GPS readings at same household.",
-      "expected_detection": "Haversine distance scoring should detect easily",
-      "count": 1000
+      "count": 1000,
+      "difficulty": "EASY",
+      "description": "Same name/DOB, GPS shifted 20-150 meters. Different GPS reading at same location.",
+      "what_catches_it": "Haversine distance scoring."
     },
     "COMBINED_NOISE": {
-      "description": "Multiple variations applied: phonetic + spelling + DOB + GPS shift + missing phone. Simulates worst-case real-world scenario.",
-      "expected_detection": "Requires multi-attribute weighted scoring to catch. Tests the full pipeline.",
-      "count": 1500
+      "count": 1500,
+      "difficulty": "HARD",
+      "description": "Multiple variations: phonetic + spelling + DOB + GPS + missing phone + cross-cycle.",
+      "what_catches_it": "Multi-attribute weighted scoring pipeline. Tests the full system."
     },
     "CROSS_BOUNDARY": {
-      "description": "Same person registered in a different boundary/settlement. Simulates person moving or being registered during visit to another area.",
-      "expected_detection": "GPS proximity won't help here - must rely on name+DOB matching across boundaries",
-      "count": 750
+      "count": 750,
+      "difficulty": "HARD",
+      "description": "Same person registered in a different boundary/settlement. GPS won't help.",
+      "what_catches_it": "Name+DOB matching across boundaries. Cannot rely on GPS proximity."
     }
   },
   "evaluation_guidance": {
@@ -74,12 +85,18 @@
       "Recall: Of all actual duplicate pairs, what % were detected?",
       "F1 Score: Harmonic mean of precision and recall"
     ],
-    "expected_benchmarks": {
-      "EASY_pairs": "Should achieve >90% recall at >90% precision",
-      "MEDIUM_pairs": "Target >75% recall at >80% precision",
-      "HARD_pairs": "Target >50% recall at >70% precision",
-      "overall": "Target F1 > 0.75 across all types"
+    "benchmarks": {
+      "EASY": ">90% recall at >90% precision",
+      "MEDIUM": ">75% recall at >80% precision",
+      "HARD": ">50% recall at >70% precision",
+      "overall_F1": ">0.75"
     },
-    "usage": "1. Load dedup_test_records.csv into your dedup pipeline\n2. Run the matching algorithm to produce candidate pairs with scores\n3. Compare your detected pairs against dedup_ground_truth.csv\n4. Calculate precision, recall, F1 per type and overall\n5. Tune scoring weights and thresholds to optimize F1"
+    "usage": [
+      "1. Load dedup_test_records.csv into your dedup pipeline",
+      "2. Run matching algorithm to produce candidate pairs with scores",
+      "3. Compare detected pairs against dedup_ground_truth.csv",
+      "4. Calculate precision, recall, F1 per type and overall",
+      "5. Tune scoring weights and thresholds to improve F1"
+    ]
   }
 }
