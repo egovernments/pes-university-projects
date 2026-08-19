@@ -1,0 +1,37 @@
+# Local-only design notes, diagrams and decks.
+docs
+
+# Local input data. Sources are fetched on demand by ISO3, and the supplied microplan
+# files are real health-facility records that stay off the repo.
+Data_Source/
+
+# Transient on-demand download cache (WorldPop rasters, boundary GeoJSON, VIDA parquet).
+.cache/
+
+# Generated batch output (CSV / GeoJSON per feature).
+pdi-batch/output
+
+# Python environment
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+
+# Local secrets / Flyway CLI config
+db/flyway.conf
+
+# Java build output
+target/
+
+# Node / frontend build artifacts
+node_modules/
+dist/
+demo/public/data/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
