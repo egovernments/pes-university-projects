@@ -1,0 +1,8 @@
+# Copy to db/flyway.conf and set your local DB password (POSTGRES_PASSWORD from .env).
+# Only needed for the standalone Flyway CLI; the Docker run passes -url/-user/-password directly.
+flyway.url=jdbc:postgresql://localhost:5432/pdi
+flyway.user=pdi
+flyway.password=CHANGE_ME
+flyway.locations=filesystem:db/migration
+flyway.baselineOnMigrate=true
+flyway.baselineVersion=0
