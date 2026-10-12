@@ -1,0 +1,58 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: population-denominator-service
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+  # Postgres backs the result cache (see pdi.cache). Defaults match docker-compose
+  # and .env (pdi/pdi@localhost/pdi). The service still boots and computes if the
+  # DB is unreachable - the cache simply disables itself (see ResultCacheStore).
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:pdi}}
+    username: ${POSTGRES_USER:pdi}
+    password: ${POSTGRES_PASSWORD:pdi}
+    hikari:
+      pool-name: pdi-db-pool
+      maximum-pool-size: 8
+      connection-timeout: 3000
+      # Never block application startup on the database; connect lazily on first use.
+      initialization-fail-timeout: -1
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        # Resolve the dialect from configuration, not by connecting at startup, so the
+        # service boots (and the compute/map path works) even when Postgres is down.
+        boot.allow_jdbc_metadata_access: false
+
+pdi:
+  cache:
+    # Master switch for the Postgres-backed result cache. When off (or the DB is
+    # unreachable) every request runs the engine fresh, as before.
+    enabled: ${PDI_CACHE_ENABLED:true}
+  engine:
+    python: ${PDI_ENGINE_PYTHON:../.venv/Scripts/python.exe}
+    workdir: ${PDI_ENGINE_WORKDIR:../pdi-batch}
+    # 0 (or negative) = no cap: first-run raster downloads can take hours. Set a
+    # positive PDI_ENGINE_TIMEOUT (seconds) only if you want a hard kill.
+    timeout-seconds: ${PDI_ENGINE_TIMEOUT:0}
+    # Persist the individual building_footprint layer. On by default so the full
+    # documented dataset is stored; it only runs on a campaign's first compute
+    # (repeats are served from the result cache). Set PDI_PERSIST_BUILDINGS=false
+    # to skip it if first-run inserts on very large countries are too slow.
+    persist-buildings: ${PDI_PERSIST_BUILDINGS:true}
+  artifacts:
+    dir: ${PDI_ARTIFACTS_DIR:${java.io.tmpdir}/pdi-artifacts}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

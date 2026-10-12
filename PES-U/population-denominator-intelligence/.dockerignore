@@ -1,0 +1,14 @@
+# Keep the build context small: the cache alone is multiple GB and is rebuilt at
+# runtime on a mounted volume, never baked into the image.
+.cache/
+.venv/
+.git/
+Data_Source/
+demo/node_modules/
+demo/dist/
+pdi-service/target/
+**/__pycache__/
+**/*.pyc
+.env
+docs/
+react/

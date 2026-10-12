@@ -1,0 +1,31 @@
+# Raster processing
+rasterio
+rasterstats
+
+# Vector / spatial
+geopandas
+shapely
+pyproj
+pyogrio
+pyarrow  # GeoParquet I/O (VIDA combined Open Buildings)
+
+requests       # geoBoundaries / WorldPop REST
+fsspec         # stream remote GeoParquet with bbox pushdown
+aiohttp        # fsspec https backend
+
+# Boundary sheet (microplan Excel) input
+openpyxl    
+
+# Clustering
+scikit-learn
+
+# PostGIS connectivity
+psycopg[binary]
+sqlalchemy
+geoalchemy2
+
+# Config
+python-dotenv
+
+# Testing
+pytest
