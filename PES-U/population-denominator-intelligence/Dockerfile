@@ -1,5 +1,5 @@
 # One image carrying both halves of the engine: the Spring Boot API and the Python
-# batch it shells out to. They ship together because PythonEngineRunner invokes the
+# batch it shells out to. They ship together because PythonEngineUtil invokes the
 # batch as a subprocess on the same filesystem - splitting them into two services
 # would mean rebuilding that call as a network hop.
 

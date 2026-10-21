@@ -60,7 +60,7 @@ graph TB
     end
 
     subgraph Service["pdi-service — population-denominator-service (Java 17 / Spring Boot 3.4)"]
-        JOB["Async job runner<br/>PythonEngineRunner"]
+        JOB["Async job runner<br/>PythonEngineUtil"]
         CACHE["Result cache<br/>engine_result_cache"]
         API["REST API<br/>/population/v1/**"]
     end
@@ -83,14 +83,14 @@ graph TB
     JOB --> TGT
     API --> JOB
     API --> CACHE --> PG
-    API -->|JPA read| PG
+    API -->|JDBC read| PG
     DEMO --> API
     DIGIT -. planned .-> API
 ```
 
 **Read path vs. write path.** The engine writes; the API reads. `pdi-batch/persistence/store.py`
-upserts every feature output into PostGIS at the end of a run, and `DashboardController` serves
-dashboard aggregates straight out of those tables through JPA — no raster math at request time.
+upserts every feature output into PostGIS at the end of a run, and `DashboardApiController` serves
+dashboard aggregates straight out of those tables through JDBC — no raster math at request time.
 
 ---
 
@@ -143,7 +143,7 @@ cp .env.example .env
 ```
 
 Open `.env` and set the Postgres credentials. The defaults in `.env.example` (`pdi` / `pdi` / `pdi`)
-line up with what `docker-compose.yml` creates and what `application.yml` expects, so you can leave
+line up with what `docker-compose.yml` creates and what `application.properties` expects, so you can leave
 them alone for local work:
 
 ```ini
@@ -304,7 +304,7 @@ All endpoints are under `/population/v1` and tenant-scoped (`tenantId`, default 
 `_compute` parameters: `iso3` (required), `sheet` (file), `year`, `householdSize`, `groups`,
 `withBuildings` (default `true`), `campaignId`, `tenantId`, `force` (default `false`).
 
-### Dashboard (read-only, straight from PostGIS via JPA)
+### Dashboard (read-only, straight from PostGIS via JDBC)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -624,7 +624,7 @@ in `pdi-batch/config.py`.
 | Clustering | `scikit-learn` DBSCAN | invisible settlement detection |
 | Persistence | `sqlalchemy`, `geoalchemy2`, `psycopg` | upserts into PostGIS |
 | Database | PostgreSQL 15 + PostGIS 3.4, Flyway | DIGIT-standard, tenant-scoped |
-| API | Java 17, Spring Boot 3.4, Spring Data JPA | async job runner + read API |
+| API | Java 17, Spring Boot 3.4, Spring JDBC | async job runner + read API |
 | Frontend | React 18 + Leaflet (`demo/`), DIGIT module (`react/`) | Feature 3 visualization |
 | Testing | `pytest`, JUnit via `spring-boot-starter-test` | |
 
