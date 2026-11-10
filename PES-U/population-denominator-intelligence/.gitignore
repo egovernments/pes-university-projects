@@ -23,7 +23,7 @@ __pycache__/
 db/flyway.conf
 
 # Java build output
-target/
+pdi-service/target/
 
 # Node / frontend build artifacts
 node_modules/
