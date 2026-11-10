@@ -60,6 +60,13 @@ public class ArtifactRepository {
         return jobId;
     }
 
+    /** Stores a single file under a new artifact id and returns the id. */
+    public String store(Path file, String extension) {
+        String artifactId = UUID.randomUUID().toString();
+        move(file, artifactId + "." + extension);
+        return artifactId;
+    }
+
     public Optional<Path> find(String jobId, String extension) {
         Path file = root.resolve(jobId + "." + extension);
         return Files.exists(file) ? Optional.of(file) : Optional.empty();

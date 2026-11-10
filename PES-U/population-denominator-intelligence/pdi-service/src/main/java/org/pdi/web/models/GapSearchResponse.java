@@ -11,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 import java.util.List;
 
 /**
- * Response for {@code POST /population/v1/gap/_search}, per ARCHITECTURE.md §8.1.
+ * Response for {@code POST /population/v1/gap/_search}.
  */
 @Validated
 @JsonIgnoreProperties(ignoreUnknown = true)

@@ -14,8 +14,8 @@ export const riskMeta = (p) =>
   RISK_PRIORITIES[p] || { label: p || "—", color: "#94a3b8", desc: "" };
 
 // The five weighted factors, in display order, each with a human label, a short
-// explanation, and a distinct colour for the score-composition bar. `provisional`
-// factors have no data feed yet (held at a neutral 0.5 — see config.RISK_PROVISIONAL_FACTORS).
+// explanation, and a distinct colour for the score-composition bar. A factor the
+// uploaded sheet does not supply is held at a neutral 0.5 and marked provisional.
 export const RISK_FACTORS = [
   { key: "population_gap", label: "Population gap", color: "#dc2626", desc: "Share of the estimated population not yet registered" },
   { key: "past_performance", label: "Past performance", color: "#0d9488", desc: "Historical campaign coverage in this district" },

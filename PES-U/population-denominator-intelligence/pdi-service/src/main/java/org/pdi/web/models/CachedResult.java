@@ -13,7 +13,7 @@ import org.springframework.validation.annotation.Validated;
  * {@code response} is the stored {@code TargetComputeResponse} JSON (its URLs are
  * re-minted against a fresh artifact id on serve); the remaining fields are the
  * artifact file contents, any of which may be {@code null} when that artifact was
- * not produced (e.g. no sheet ⇒ no catchments/buildings/downloadable xlsx).
+ * not produced (with no sheet there are no catchments, buildings or workbook).
  */
 @Validated
 @JsonIgnoreProperties(ignoreUnknown = true)

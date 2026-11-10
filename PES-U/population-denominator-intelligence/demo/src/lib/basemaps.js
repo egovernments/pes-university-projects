@@ -1,11 +1,4 @@
-// Tile sources for every map in the demo, in one place.
-//
-// These were CARTO Positron (basemaps.cartocdn.com) until CARTO started requiring an
-// API key for their basemaps: anonymous requests still return HTTP 200, but the tile
-// PNG itself is stamped "API KEY REQUIRED - carto.com/basemaps/apikey", which showed
-// through as text scrawled across the map background. Esri's public ArcGIS Online
-// services are the like-for-like replacement - same pale grey canvas, no key, and the
-// satellite layer was already coming from the same host.
+// Tile sources for every map in the demo. Esri's public ArcGIS Online services need no API key.
 
 const ESRI_ATTRIBUTION = "&copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors";
 

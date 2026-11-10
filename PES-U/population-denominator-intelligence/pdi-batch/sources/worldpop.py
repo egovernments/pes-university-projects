@@ -58,7 +58,7 @@ def _group_rows(codes, band_sums, groups):
 
 def _resolve_rasters(tokens, iso3, year):
     """Map every required band token to a local raster path (fetched on demand)."""
-    rasters = remote.worldpop_age_rasters(iso3, year)
+    rasters = remote.worldpop_age_rasters(iso3, year) if tokens - {"total"} else {}
     if "total" in tokens:
         rasters["total"] = remote.worldpop_total_raster(iso3, year)
     missing = tokens - rasters.keys()
@@ -67,14 +67,19 @@ def _resolve_rasters(tokens, iso3, year):
     return rasters
 
 
-def compute_zonal(boundaries, iso3=None, year=None, label="population"):
-    """Per-boundary population for every configured target group, keyed by boundary_code.
+def compute_zonal(boundaries, iso3=None, year=None, label="population",
+                  code_field=None, groups=None):
+    """Per-boundary population for every requested target group, keyed by boundary_code.
 
     ``label`` names the pass in the progress log; a run with a microplan sheet does
-    this twice (whole country, then the catchment cells).
+    this twice (whole country, then the catchment cells). ``code_field`` is the column
+    holding each boundary's code (geoBoundaries ``shapeID`` by default). ``groups`` limits
+    the pass to those target groups, so only their rasters are fetched.
     """
-    codes = boundaries[config.BOUNDARY_CODE_FIELD].tolist()
-    tokens = {token for tokens in config.TARGET_GROUPS.values() for token in tokens}
+    codes = boundaries[code_field or config.BOUNDARY_CODE_FIELD].tolist()
+    target_groups = (config.TARGET_GROUPS if groups is None
+                     else {name: config.TARGET_GROUPS[name] for name in groups})
+    tokens = {token for tokens in target_groups.values() for token in tokens}
     print(f"fetching WorldPop rasters ({len(tokens)} bands)", flush=True)
     rasters = _resolve_rasters(tokens, iso3, year)
     print(f"computing {label} over {len(codes)} boundaries", flush=True)
@@ -87,7 +92,7 @@ def compute_zonal(boundaries, iso3=None, year=None, label="population"):
         band_sums[token] = _zonal_sums(boundaries.geometry, rasters[token])
         print(f"PROGRESS {(index + 1) * 100 // len(ordered)} {label}: "
               f"band {index + 1}/{len(ordered)} over {len(codes)} boundaries", flush=True)
-    return _group_rows(codes, band_sums, config.TARGET_GROUPS)
+    return _group_rows(codes, band_sums, target_groups)
 
 
 def main():

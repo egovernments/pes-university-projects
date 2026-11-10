@@ -101,11 +101,11 @@ dashboard aggregates straight out of those tables through JDBC — no raster mat
 | `pdi-batch/` | The Python intelligence engine. Source adapters, five features, PostGIS persistence, tests. |
 | `pdi-batch/config.py` | Single config module: country, target cohorts, thresholds, CRS, risk weights, paths. |
 | `pdi-batch/sources/` | On-demand adapters: `remote` (download + cache), `boundaries`, `worldpop`, `buildings`, `catchments`, `register`. |
-| `pdi-batch/features/` | `estimation` (F1), `gap` (F2), `invisible` (F4), `risk` (F5), `targets` (orchestrator + CLI entry point). |
+| `pdi-batch/features/` | `estimation` (F1), `gap` (F2), `invisible` (F4), `risk` (F5), `targets` (orchestrator + CLI entry point), `boundary_geometry` and `boundary_population` (HCM boundary sheet). |
 | `pdi-batch/persistence/store.py` | Upserts engine output into the PostGIS tables. |
 | `pdi-batch/tests/` | `pytest` suite over sources and features. |
 | `pdi-service/` | `population-denominator-service` — Spring Boot 3.4 / Java 17 API that drives the engine and serves results. |
-| `db/migration/` | Flyway migrations `V1`–`V5` (PostGIS extensions, boundaries, PDI tables, risk-config seed, result cache). |
+| `db/migration/` | Flyway migrations `V1`–`V8` (PostGIS extensions, boundaries, PDI tables, risk-config seed, result cache, HCM boundary population). |
 | `db/init/` | SQL applied automatically on first container start (extensions). |
 | `demo/` | React + Leaflet dashboard (Feature 3) driven entirely by the service API. |
 | `react/` | DIGIT HCM micro-frontend module scaffold (`digit-ui-module-health-pdi`). |
@@ -188,7 +188,7 @@ docker exec -it pdi-postgis psql -U pdi -d pdi -c "SELECT postgis_full_version()
 
 ### 5.3 Apply the database schema (Flyway)
 
-The schema lives in `db/migration/` as five migrations:
+The schema lives in `db/migration/` as eight migrations:
 
 | Migration | Creates |
 |-----------|---------|
@@ -197,6 +197,9 @@ The schema lives in `db/migration/` as five migrations:
 | `V3__pdi_tables.sql` | `population_estimate`, `gap_report`, `invisible_settlement`, `building_footprint`, `risk_score_config` |
 | `V4__risk_config_seed.sql` | default risk weights for the scoring model |
 | `V5__engine_result_cache.sql` | `engine_result_cache` — the whole-run result cache |
+| `V6__population_run.sql` | `eg_pdi_population_run` — WorldPop runs per tenant and HCM hierarchy type |
+| `V7__boundary_population.sql` | `eg_pdi_boundary_population` — population per HCM boundary code, per run |
+| `V8__boundary_geometry.sql` | `eg_pdi_boundary_geometry` — the location (point or polygon) of each HCM boundary code |
 
 **Option A — Flyway via Docker (no local install).** Run from the project root:
 
@@ -231,8 +234,8 @@ docker exec -it pdi-postgis psql -U pdi -d pdi -c "\dt"
 ```
 
 You should see `settlement_boundary`, `population_estimate`, `gap_report`, `invisible_settlement`,
-`building_footprint`, `risk_score_config`, `engine_result_cache` and Flyway's own
-`flyway_schema_history`.
+`building_footprint`, `risk_score_config`, `engine_result_cache`, the three `eg_pdi_*` tables and
+Flyway's own `flyway_schema_history`.
 
 ### 5.4 Set up the Python engine
 
@@ -310,6 +313,23 @@ All endpoints are under `/population/v1` and tenant-scoped (`tenantId`, default 
 |--------|------|---------|
 | `GET` | `/dashboard/_stats?campaignId=&boundaryCode=&tenantId=` | Summary totals, gap distribution, risk distribution, top gaps. |
 | `POST` | `/gap/_search?tenantId=` | Paged gap-report search; body is `{"gapSearchCriteria": {"campaignId": "..."}}`. |
+
+### HCM boundary population (WorldPop column in the excel-ingestion boundary sheet)
+
+HCM boundaries carry no geometry, so PDI first collects a location for each boundary code, then
+pre-computes WorldPop population per code. excel-ingestion reads the figures through `_search` when it
+generates the campaign boundary sheet. These endpoints take a DIGIT `RequestInfo` and require
+`tenantId` and `hierarchyType`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/boundary-geometry/_generate` | Geometry sheet for a hierarchy (`onlyMissing` defaults to `true`). |
+| `POST` | `/boundary-geometry/_upload` | Multipart: filled `sheet` and/or `shapes` (GeoJSON or zipped shapefile). Starts a DELTA run when a location changed. |
+| `GET` | `/boundary-geometry/{uploadId}/_errors` | The uploaded sheet with an `Error` column for rejected rows. |
+| `POST` | `/boundary-geometry/_search` | Which codes have a location, of which kind, and which are missing. |
+| `POST` | `/boundary-population/_compute` | Start a run (`DELTA` by default, or `FULL`). `202`, or `409` if one is in progress. |
+| `POST` | `/boundary-population/run/_search` | Run status, progress, counts and the active run. |
+| `POST` | `/boundary-population/_search` | Population for up to 5,000 boundary codes from the active run. |
 
 ---
 
@@ -570,7 +590,7 @@ Geometry columns carry GiST indexes.
 
 ### Adding a migration
 
-Create `db/migration/V6__<description>.sql` and re-run the Flyway command from §5.3. Never edit an
+Create `db/migration/V9__<description>.sql` and re-run the Flyway command from §5.3. Never edit an
 applied migration — Flyway validates checksums and will refuse to run.
 
 ---
@@ -591,6 +611,8 @@ applied migration — Flyway validates checksums and will refuse to run.
 | `PDI_PERSIST_BUILDINGS` | `true` | Java | Persist individual footprints on first compute |
 | `PDI_CACHE_ENABLED` | `true` | Java | Master switch for the result cache |
 | `PDI_ARTIFACTS_DIR` | system temp | Java | Where job artifacts are written |
+| `EGOV_BOUNDARY_HOST` | `http://localhost:8081/` | Java | HCM boundary-service base URL |
+| `EGOV_LOCALIZATION_HOST` | `http://localhost:8083/` | Java | HCM localization base URL (boundary names) |
 | `VITE_API_BASE` | `http://localhost:8080` | demo | API base URL |
 
 Non-environment tuning — cohort definitions, thresholds, DBSCAN parameters, risk weights, CRS — lives

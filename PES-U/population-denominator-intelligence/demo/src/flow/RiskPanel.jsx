@@ -41,8 +41,7 @@ function FactorRow({ meta, f }) {
   );
 }
 
-// Risk detail for the live API run — same explainable breakdown as the legacy
-// dashboard, but reading the live property contract (name/boundaryCode).
+// Risk detail for the selected district: the score broken down by factor.
 export default function RiskPanel({ props }) {
   if (!props) {
     return (

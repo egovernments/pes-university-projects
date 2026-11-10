@@ -60,4 +60,38 @@ public class PdiConstants {
     public static final String ENGINE_FAILED_MSG = "The engine failed without reporting a reason. Check the API logs.";
     public static final String UPLOAD_ERROR = "UPLOAD_ERROR";
     public static final String ARTIFACT_ERROR = "ARTIFACT_ERROR";
+
+    //Boundary population paths
+    public static final String BOUNDARY_GEOMETRY_BASE_PATH = "/population/v1/boundary-geometry/";
+    public static final String ERROR_SHEET_PATH = "/_errors";
+    public static final String GEOMETRY_ERRORS_EXTENSION = "geometry-errors.xlsx";
+
+    //Boundary population values
+    public static final String MODE_DELTA = "DELTA";
+    public static final String MODE_FULL = "FULL";
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_RUNNING = "RUNNING";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+    public static final String STATUS_FAILED = "FAILED";
+    public static final String METHOD_ZONAL_UPLOAD = "ZONAL_UPLOAD";
+    public static final String METHOD_POINT_VORONOI = "POINT_VORONOI";
+    public static final String METHOD_ROLLUP = "ROLLUP";
+    public static final String METHOD_NO_GEOMETRY = "NO_GEOMETRY";
+    public static final String GEOMETRY_POLYGON = "POLYGON";
+    public static final String GEOMETRY_POINT = "POINT";
+    public static final String TOTAL_GROUP = "total";
+    public static final String BOUNDARY_LOCALIZATION_MODULE_PREFIX = "hcm-boundary-";
+    public static final String RESPONSE_STATUS_SUCCESSFUL = "successful";
+
+    //Boundary population error codes
+    public static final String TENANT_ID_REQUIRED = "TENANT_ID_REQUIRED";
+    public static final String HIERARCHY_TYPE_REQUIRED = "HIERARCHY_TYPE_REQUIRED";
+    public static final String INVALID_REQUEST = "INVALID_REQUEST";
+    public static final String INVALID_GROUP = "INVALID_GROUP";
+    public static final String RUN_IN_PROGRESS = "RUN_IN_PROGRESS";
+    public static final String RUN_IN_PROGRESS_MSG = "a population run is already in progress for this tenant and hierarchy type";
+    public static final String TOO_MANY_CODES = "TOO_MANY_CODES";
+    public static final String BOUNDARY_SERVICE_ERROR = "BOUNDARY_SERVICE_ERROR";
+    public static final String HIERARCHY_NOT_FOUND = "HIERARCHY_NOT_FOUND";
+    public static final String ERROR_SHEET_NOT_FOUND_MSG = "geometry error sheet not found";
 }

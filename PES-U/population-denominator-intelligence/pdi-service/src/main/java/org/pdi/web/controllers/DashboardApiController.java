@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 /**
  * Read-only dashboard API over the pre-computed PostGIS tables. Endpoints follow
- * the documented DIGIT shape (ARCHITECTURE.md §8.1 / §14.2) and are tenant-scoped.
+ * the DIGIT request/response shape and are tenant-scoped.
  */
 @Controller
 @RequestMapping("/population/v1")

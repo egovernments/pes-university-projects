@@ -12,8 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Payload for {@code GET /population/v1/dashboard/_stats}, shaped exactly as
- * documented in ARCHITECTURE.md §14.2.
+ * Payload for {@code GET /population/v1/dashboard/_stats}.
  */
 @Validated
 @JsonIgnoreProperties(ignoreUnknown = true)

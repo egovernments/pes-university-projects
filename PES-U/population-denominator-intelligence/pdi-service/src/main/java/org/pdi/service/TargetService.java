@@ -52,6 +52,7 @@ import static org.pdi.util.PdiConstants.STATS_EXTENSION;
 import static org.pdi.util.PdiConstants.XLSX_EXTENSION;
 import static org.pdi.util.PdiServiceUtil.deleteDirQuietly;
 import static org.pdi.util.PdiServiceUtil.lastLine;
+import static org.pdi.util.PdiServiceUtil.progressPercent;
 import static org.pdi.util.PdiServiceUtil.readOrEmpty;
 import static org.pdi.util.PdiServiceUtil.readableFailure;
 import static org.pdi.util.PdiServiceUtil.sha256Hex;
@@ -137,19 +138,14 @@ public class TargetService {
     }
 
     private JobProgress parseProgress(String line) {
-        if (line != null && line.startsWith(PROGRESS_PREFIX)) {
-            String rest = line.substring(PROGRESS_PREFIX.length()).strip();
-            int space = rest.indexOf(' ');
-            String head = space < 0 ? rest : rest.substring(0, space);
-            try {
-                int pct = Math.max(0, Math.min(100, Integer.parseInt(head)));
-                String text = space < 0 ? DOWNLOADING_MESSAGE : rest.substring(space + 1).strip();
-                return new JobProgress(text, pct);
-            } catch (NumberFormatException ignored) {
-                // fall through to the plain-text case
-            }
+        Integer percent = progressPercent(line);
+        if (percent == null) {
+            return new JobProgress(line, null);
         }
-        return new JobProgress(line, null);
+        String rest = line.substring(PROGRESS_PREFIX.length()).strip();
+        int space = rest.indexOf(' ');
+        String text = space < 0 ? DOWNLOADING_MESSAGE : rest.substring(space + 1).strip();
+        return new JobProgress(text, percent);
     }
 
     private void runJob(Job job, Uploads uploads, ComputeCommand command, String cacheKey, String paramsJson) {

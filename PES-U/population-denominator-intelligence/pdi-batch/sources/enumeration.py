@@ -424,7 +424,7 @@ def main():
         print(f"official target (cible):  {int(frame['official_target'].sum()):>12,}")
     withheld = frame.attrs.get("withheld") or {}
     if withheld:
-        print(f"\npooled rows, counts withheld from the per-facility totals above:")
+        print("\npooled rows, counts withheld from the per-facility totals above:")
         print(f"  rows:       {', '.join(withheld['rows'])}")
         print(f"  facilities: {', '.join(withheld['facilities'])}")
         print(f"  withheld:   {withheld['registered_households']:,} households, "

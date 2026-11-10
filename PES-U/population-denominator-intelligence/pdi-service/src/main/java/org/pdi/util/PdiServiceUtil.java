@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 
 import static org.pdi.util.PdiConstants.ARTIFACT_ERROR;
 import static org.pdi.util.PdiConstants.ENGINE_FAILED_MSG;
+import static org.pdi.util.PdiConstants.PROGRESS_PREFIX;
 import static org.pdi.util.PdiConstants.WORKING_MESSAGE;
 
 public class PdiServiceUtil {
@@ -40,6 +41,21 @@ public class PdiServiceUtil {
             return ENGINE_FAILED_MSG;
         }
         return PYTHON_EXCEPTION.matcher(line).replaceFirst("");
+    }
+
+    /** Percent of an engine {@code PROGRESS <pct> <text>} line, or null for any other line. */
+    public static Integer progressPercent(String line) {
+        if (line == null || !line.startsWith(PROGRESS_PREFIX)) {
+            return null;
+        }
+        String rest = line.substring(PROGRESS_PREFIX.length()).strip();
+        int space = rest.indexOf(' ');
+        try {
+            int percent = Integer.parseInt(space < 0 ? rest : rest.substring(0, space));
+            return Math.max(0, Math.min(100, percent));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     public static String lastLine(String text) {

@@ -2,10 +2,14 @@ package org.pdi.config;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.time.Duration;
 import java.util.TimeZone;
 
 @Configuration
@@ -22,6 +26,14 @@ public class MainConfiguration implements WebMvcConfigurer {
     @PostConstruct
     public void initialize() {
         TimeZone.setDefault(TimeZone.getTimeZone(timeZone));
+    }
+
+    @Bean
+    public RestTemplate restTemplate(RestTemplateBuilder builder, PdiConfiguration config) {
+        return builder
+                .connectTimeout(Duration.ofMillis(config.getHttpConnectTimeoutMs()))
+                .readTimeout(Duration.ofMillis(config.getHttpReadTimeoutMs()))
+                .build();
     }
 
     @Override

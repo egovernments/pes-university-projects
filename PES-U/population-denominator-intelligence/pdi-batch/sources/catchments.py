@@ -2,9 +2,9 @@
 
 Three sources, in order of precedence:
 
-* an uploaded boundary geojson, whose polygons are the catchment cells directly (mode C);
+* an uploaded boundary geojson, whose polygons are the catchment cells directly;
 * an uploaded sheet of facility coordinates, from which Voronoi cells are cut inside each
-  district (the earlier path, kept for callers that only have points);
+  district, for callers that only have points;
 * the country's geoBoundaries districts, when nothing is uploaded.
 
 The country districts remain the base layer in every case - uploaded catchments are an

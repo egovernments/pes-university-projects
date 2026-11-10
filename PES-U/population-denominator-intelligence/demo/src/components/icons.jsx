@@ -17,41 +17,6 @@ export const IconMap = (p) => (
   </svg>
 );
 
-export const IconRaster = (p) => (
-  <svg {...base} {...p}>
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
-  </svg>
-);
-
-export const IconTable = (p) => (
-  <svg {...base} {...p}>
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M3 9h18M3 15h18M9 3v18" />
-  </svg>
-);
-
-export const IconSearch = (p) => (
-  <svg {...base} {...p}>
-    <circle cx="11" cy="11" r="7" />
-    <path d="m21 21-4.3-4.3" />
-  </svg>
-);
-
-export const IconInfo = (p) => (
-  <svg {...base} {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 16v-4M12 8h.01" />
-  </svg>
-);
-
-export const IconGlobe = (p) => (
-  <svg {...base} {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-  </svg>
-);
-
 export const IconFilter = (p) => (
   <svg {...base} {...p}>
     <path d="M3 5h18l-7 8v6l-4-2v-4L3 5Z" />

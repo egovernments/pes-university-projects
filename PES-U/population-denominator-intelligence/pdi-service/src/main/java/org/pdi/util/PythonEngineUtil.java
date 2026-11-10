@@ -1,11 +1,14 @@
 package org.pdi.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.pdi.config.PdiConfiguration;
 import org.pdi.exception.CustomException;
+import org.pdi.web.models.BoundaryPopulationResult;
 import org.pdi.web.models.ComputeCommand;
 import org.pdi.web.models.EngineInput;
 import org.pdi.web.models.EngineResult;
+import org.pdi.web.models.GeometryParseResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -18,17 +21,25 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntConsumer;
 
 import static org.pdi.util.PdiConstants.DEFAULT_TENANT_ID;
 import static org.pdi.util.PdiConstants.ENGINE_ERROR;
 import static org.pdi.util.PdiConstants.LOG_TAIL_CHARS;
+import static org.pdi.util.PdiServiceUtil.lastLine;
+import static org.pdi.util.PdiServiceUtil.progressPercent;
+import static org.pdi.util.PdiServiceUtil.readOrEmpty;
+import static org.pdi.util.PdiServiceUtil.readableFailure;
 
 /**
- * Runs the Python batch engine ({@code python -m features.targets}) as a subprocess and
+ * Runs the Python batch engine as a subprocess ({@code python -m features.<command>}) and
  * reads back the result document it writes.
  */
+@Slf4j
 @Component
 public class PythonEngineUtil {
+
+    private static final long PROGRESS_POLL_SECONDS = 2;
 
     private final PdiConfiguration config;
 
@@ -54,8 +65,61 @@ public class PythonEngineUtil {
                 buildCommand(uploads, outSheet, geojson, settlements, catchments, buildings,
                         stats, resultJson, command),
                 logFile);
-        awaitCompletion(process, logFile);
-        return readResult(resultJson);
+        awaitCompletion(process, logFile, null);
+        return readResult(resultJson, EngineResult.class);
+    }
+
+    /** WorldPop population per boundary code over the resolved units ({@code features.boundary_population}). */
+    public BoundaryPopulationResult boundaryPopulation(Path units, Path clips, String iso3, Integer year,
+                                                       List<String> groups, Path logFile, IntConsumer progress) {
+        Path resultJson = logFile.getParent().resolve("boundary-population.json");
+        List<String> args = new ArrayList<>(List.of(
+                config.getEnginePython(), "-u", "-m", "features.boundary_population",
+                "--units", units.toString(),
+                "--iso3", iso3,
+                "--groups", String.join(",", groups),
+                "--out", resultJson.toString()));
+        if (clips != null) {
+            args.add("--clips");
+            args.add(clips.toString());
+        }
+        if (year != null) {
+            args.add("--year");
+            args.add(year.toString());
+        }
+        awaitCompletion(start(args, logFile), logFile, progress);
+        return readResult(resultJson, BoundaryPopulationResult.class);
+    }
+
+    /** Writes the fill-in geometry sheet for the given boundary rows. */
+    public void generateGeometrySheet(Path rowsJson, Path outSheet, Path logFile) {
+        List<String> args = List.of(config.getEnginePython(), "-u", "-m", "features.boundary_geometry", "generate",
+                "--rows", rowsJson.toString(), "--out", outSheet.toString());
+        awaitCompletion(start(args, logFile), logFile, null);
+    }
+
+    /** Checks an uploaded geometry sheet and shape file against the hierarchy. */
+    public GeometryParseResult parseGeometryUpload(Path treeJson, String iso3, Path sheet, Path shapes,
+                                                   Path storedPolygons, Path annotatedSheet, Path logFile) {
+        Path resultJson = logFile.getParent().resolve("geometry-upload.json");
+        List<String> args = new ArrayList<>(List.of(
+                config.getEnginePython(), "-u", "-m", "features.boundary_geometry", "parse",
+                "--tree", treeJson.toString(), "--iso3", iso3, "--out", resultJson.toString()));
+        addOptional(args, "--sheet", sheet);
+        addOptional(args, "--shapes", shapes);
+        addOptional(args, "--stored", storedPolygons);
+        if (sheet != null) {
+            addOptional(args, "--annotated", annotatedSheet);
+        }
+        awaitCompletion(start(args, logFile), logFile, null);
+        return readResult(resultJson, GeometryParseResult.class);
+    }
+
+    private void addOptional(List<String> args, String flag, Path value) {
+        if (value != null) {
+            args.add(flag);
+            args.add(value.toAbsolutePath().toString());
+        }
     }
 
     private List<String> buildCommand(Uploads uploads, Path outSheet, Path geojson, Path settlements,
@@ -114,11 +178,11 @@ public class PythonEngineUtil {
         return args;
     }
 
-    private Process start(List<String> args, Path log) {
+    private Process start(List<String> args, Path logFile) {
         ProcessBuilder builder = new ProcessBuilder(args)
                 .directory(new File(config.getEngineWorkdir()))
                 .redirectErrorStream(true)
-                .redirectOutput(log.toFile());
+                .redirectOutput(logFile.toFile());
         try {
             return builder.start();
         } catch (IOException e) {
@@ -127,24 +191,34 @@ public class PythonEngineUtil {
         }
     }
 
-    private void awaitCompletion(Process process, Path log) {
+    /**
+     * Waits for the engine, reporting the percent of its latest {@code PROGRESS} line to
+     * {@code progress} (when given) while it runs.
+     */
+    private void awaitCompletion(Process process, Path logFile, IntConsumer progress) {
         try {
             long timeout = config.getEngineTimeoutSeconds();
-            if (timeout <= 0) {
-                // No cap: the first run for a country downloads WorldPop rasters
-                // (and can take hours on a slow link). The job is async and streams
-                // progress to the log, so we let the batch run to completion.
-                process.waitFor();
-            } else {
-                boolean finished = process.waitFor(timeout, TimeUnit.SECONDS);
-                if (!finished) {
+            // No cap when timeout <= 0: the first run for a country downloads WorldPop rasters
+            // (and can take hours on a slow link). The job is async and streams progress to the
+            // log, so the batch is let run to completion.
+            long deadline = timeout <= 0 ? Long.MAX_VALUE : System.nanoTime() + TimeUnit.SECONDS.toNanos(timeout);
+            while (!process.waitFor(PROGRESS_POLL_SECONDS, TimeUnit.SECONDS)) {
+                if (System.nanoTime() > deadline) {
                     process.destroyForcibly();
                     throw new CustomException(ENGINE_ERROR, "engine timed out after " + timeout + "s",
                             HttpStatus.UNPROCESSABLE_ENTITY);
                 }
+                if (progress != null) {
+                    Integer percent = progressPercent(lastLine(readOrEmpty(logFile)));
+                    if (percent != null) {
+                        progress.accept(percent);
+                    }
+                }
             }
             if (process.exitValue() != 0) {
-                throw new CustomException(ENGINE_ERROR, "engine failed: " + tail(log),
+                String output = tail(logFile);
+                log.error("Engine exited with {}: {}", process.exitValue(), output);
+                throw new CustomException(ENGINE_ERROR, readableFailure(lastLine(output)),
                         HttpStatus.UNPROCESSABLE_ENTITY);
             }
         } catch (InterruptedException e) {
@@ -154,18 +228,18 @@ public class PythonEngineUtil {
         }
     }
 
-    private EngineResult readResult(Path resultJson) {
+    private <T> T readResult(Path resultJson, Class<T> type) {
         try {
-            return objectMapper.readValue(resultJson.toFile(), EngineResult.class);
+            return objectMapper.readValue(resultJson.toFile(), type);
         } catch (IOException e) {
             throw new CustomException(ENGINE_ERROR, "could not read engine result",
                     HttpStatus.UNPROCESSABLE_ENTITY, e);
         }
     }
 
-    private String tail(Path log) {
+    private String tail(Path logFile) {
         try {
-            String content = Files.readString(log, StandardCharsets.UTF_8);
+            String content = Files.readString(logFile, StandardCharsets.UTF_8);
             return content.length() <= LOG_TAIL_CHARS
                     ? content
                     : content.substring(content.length() - LOG_TAIL_CHARS);

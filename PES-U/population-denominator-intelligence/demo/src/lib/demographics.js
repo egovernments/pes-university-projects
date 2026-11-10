@@ -42,16 +42,6 @@ export function subPopulation(props, sex, fromIdx, toIdx) {
   return sum;
 }
 
-// Campaign denominators worth surfacing.
-export const DENOMINATORS = [
-  ["under5", "Under 5"],
-  ["under15", "Under 15"],
-  ["school_age_5_14", "School age 5–14"],
-  ["women_15_49", "Women 15–49"],
-  ["working_age_15_64", "Working age 15–64"],
-  ["elderly_65_plus", "Elderly 65+"],
-];
-
 // Quick-filter presets for the Explorer: {label, sex, from, to} band indices.
 export const PRESETS = [
   { label: "Total", sex: "both", from: 0, to: 19 },
@@ -62,19 +52,3 @@ export const PRESETS = [
   { label: "Working age 15–64", sex: "both", from: 4, to: 13 },
   { label: "Elderly 65+", sex: "both", from: 14, to: 19 },
 ];
-
-const NUM_KEYS = [
-  "total", "female_all", "male_all",
-  ...PYRAMID_BANDS.map(([k]) => k),
-  ...DENOMINATORS.map(([k]) => k),
-];
-
-/** Sum the numeric demographic fields across an array of geojson features. */
-export function aggregate(features) {
-  const out = Object.fromEntries(NUM_KEYS.map((k) => [k, 0]));
-  for (const f of features) {
-    const p = f.properties;
-    for (const k of NUM_KEYS) out[k] += Number(p[k]) || 0;
-  }
-  return out;
-}

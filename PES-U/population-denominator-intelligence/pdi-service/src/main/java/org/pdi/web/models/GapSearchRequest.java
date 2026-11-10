@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Body for {@code POST /population/v1/gap/_search}, per ARCHITECTURE.md §8.1.
+ * Body for {@code POST /population/v1/gap/_search}.
  */
 @Validated
 @JsonIgnoreProperties(ignoreUnknown = true)

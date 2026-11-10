@@ -36,4 +36,44 @@ public class PdiConfiguration {
     //Result cache
     @Value("${pdi.cache.enabled}")
     private Boolean cacheEnabled;
+
+    //HCM boundary-service
+    @Value("${egov.boundary.host}")
+    private String boundaryHost;
+
+    @Value("${egov.boundary.hierarchy.search.path}")
+    private String hierarchySearchPath;
+
+    @Value("${egov.boundary.relationship.search.path}")
+    private String relationshipSearchPath;
+
+    //HCM localization
+    @Value("${egov.localization.host}")
+    private String localizationHost;
+
+    @Value("${egov.localization.search.path}")
+    private String localizationSearchPath;
+
+    @Value("${egov.localization.default.locale}")
+    private String defaultLocale;
+
+    //HTTP client
+    @Value("${pdi.http.connect-timeout-ms}")
+    private Integer httpConnectTimeoutMs;
+
+    @Value("${pdi.http.read-timeout-ms}")
+    private Integer httpReadTimeoutMs;
+
+    //Boundary population
+    @Value("${pdi.population.default-year}")
+    private Integer populationDefaultYear;
+
+    @Value("${pdi.population.search.max-codes}")
+    private Integer populationSearchMaxCodes;
+
+    @Value("${pdi.population.batch-size}")
+    private Integer populationBatchSize;
+
+    @Value("${pdi.population.runs-to-keep}")
+    private Integer populationRunsToKeep;
 }

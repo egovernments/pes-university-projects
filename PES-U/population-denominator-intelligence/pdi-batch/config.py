@@ -5,7 +5,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# --- Country selection  --------
+# --- Country selection --------------------------------------------------------
 COUNTRY_ISO3 = os.getenv("PDI_ISO3", "TCD").upper()
 TARGET_YEAR = int(os.getenv("PDI_YEAR", "2026"))
 
@@ -17,7 +17,6 @@ GEOBOUNDARIES_ADM_LEVELS = ("ADM2", "ADM1", "ADM0")
 WORLDPOP_REST = "https://hub.worldpop.org/rest/data"
 WORLDPOP_AGE_ALIAS = "age_structures/G2_CN_Age_R25A_100m"
 WORLDPOP_TOTAL_ALIAS = "pop/G2_CN_POP_R25A_100m"
-WORLDPOP_ISO = COUNTRY_ISO3.lower() 
 
 VIDA_PARQUET_URL = (
     "https://data.source.coop/vida/google-microsoft-osm-open-buildings"
@@ -122,16 +121,12 @@ CATCHMENT_LOW_SAMPLE_POINTS = 50
 
 DEFAULT_TARGET_GROUPS = ["total", "under5", "age_00", "age_01_04"]
 
-COUNTRY = COUNTRY_ISO3
 # Fallback campaign id, matching the one the API mints. The engine is country-agnostic,
 # so this is derived rather than naming any one country's campaign.
 CAMPAIGN_ID = f"PDI-{COUNTRY_ISO3}-{TARGET_YEAR}"
 TENANT_ID = "default"
 WORLDPOP_VERSION = "2026-CN-100m-R2025A"
 OPEN_BUILDINGS_SOURCE = "vida-google-microsoft-osm"
-
-SANITY_BBOX = None
-WORLDPOP_REFERENCE = None
 
 TARGET_GROUPS = {
     "total": ["total"],
@@ -224,13 +219,10 @@ RISK_WEIGHTS = {
 RISK_FACILITY_MAX_KM = 50
 
 RISK_MISSING_FACTOR_DEFAULT = 0.5
-RISK_PROVISIONAL_FACTORS = ("past_performance", "missed_children")
 # Priority bands on the 0-100 score.
 RISK_CRITICAL_THRESHOLD = 75
 RISK_HIGH_THRESHOLD = 50
 RISK_MEDIUM_THRESHOLD = 25
-
-SANITY_TOLERANCE = 0.02
 
 OUTPUT_DIR = REPO_ROOT / "pdi-batch" / "output"
 ESTIMATION_OUTPUT_DIR = OUTPUT_DIR / "estimation"
