@@ -1,0 +1,651 @@
+diff --git a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ExcelIngestionConfig.java b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ExcelIngestionConfig.java
+index d8eb495..9fdd8ef 100644
+--- a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ExcelIngestionConfig.java
++++ b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ExcelIngestionConfig.java
+@@ -40,6 +40,22 @@ public class ExcelIngestionConfig {
+     @Value("${egov.campaign.host}")
+     private String campaignHost;
+ 
++    // PDI service: WorldPop population per boundary code for the boundary sheet's reference column
++    @Value("${egov.pdi.host:http://localhost:8080/}")
++    private String pdiHost;
++
++    @Value("${egov.pdi.boundary.population.search.path:population/v1/boundary-population/_search}")
++    private String pdiBoundaryPopulationSearchPath;
++
++    @Value("${egov.excel.worldpop-column-enabled:false}")
++    private boolean worldpopColumnEnabled;
++
++    @Value("${egov.pdi.search.chunk-size:5000}")
++    private int pdiSearchChunkSize;
++
++    @Value("${egov.pdi.search.timeout-ms:3000}")
++    private int pdiSearchTimeoutMs;
++
+     @Value("${excel.ingestion.outside.household.campaign.types:POLIO}")
+     private List<String> outsideHouseholdCampaignTypes;
+ 
+@@ -189,6 +205,10 @@ public class ExcelIngestionConfig {
+         return boundaryHost + relationshipSearchPath;
+     }
+ 
++    public String getPdiBoundaryPopulationSearchUrl() {
++        return pdiHost + pdiBoundaryPopulationSearchPath;
++    }
++
+     public String getMdmsSearchUrl() {
+         return mdmsHost + mdmsSearchPath;
+     }
+diff --git a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ProcessingConstants.java b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ProcessingConstants.java
+index 8e23818..970e189 100644
+--- a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ProcessingConstants.java
++++ b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/config/ProcessingConstants.java
+@@ -1,5 +1,7 @@
+ package org.egov.excelingestion.config;
+ 
++import java.util.Set;
++
+ public class ProcessingConstants {
+     
+     
+@@ -10,6 +12,12 @@ public class ProcessingConstants {
+ 
+     // Column Keys
+     public static final String BOUNDARY_CODE_COLUMN_KEY = "HCM_ADMIN_CONSOLE_BOUNDARY_CODE";
++
++    // WorldPop population from the PDI service: a locked, reference-only column of the generated
++    // boundary sheet. It is never validated and is removed before rows are saved.
++    public static final String WORLDPOP_POPULATION_COLUMN = "HCM_ADMIN_CONSOLE_WORLDPOP_POPULATION";
++    public static final String WORLDPOP_POPULATION_DESCRIPTION = "HCM_ADMIN_CONSOLE_WORLDPOP_POPULATION_DESCRIPTION";
++    public static final Set<String> REFERENCE_ONLY_COLUMNS = Set.of(WORLDPOP_POPULATION_COLUMN);
+     public static final String WORKER_ID_COLUMN_KEY = "HCM_ADMIN_CONSOLE_USER_WORKER_ID";
+ 
+     // User active/inactive column - user-editable, excluded from the immutable-baseline join
+diff --git a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGenerator.java b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGenerator.java
+index 94a2026..d587fea 100644
+--- a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGenerator.java
++++ b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGenerator.java
+@@ -7,6 +7,7 @@ import org.egov.excelingestion.exception.CustomExceptionHandler;
+ import org.egov.excelingestion.service.BoundaryService;
+ import org.egov.excelingestion.service.CampaignService;
+ import org.egov.excelingestion.service.MDMSService;
++import org.egov.excelingestion.service.PopulationService;
+ import org.egov.excelingestion.util.BoundaryUtil;
+ import org.egov.excelingestion.util.SchemaColumnDefUtil;
+ import org.egov.excelingestion.web.models.*;
+@@ -30,17 +31,20 @@ public class BoundaryHierarchySheetGenerator implements IExcelPopulatorSheetGene
+     private final CampaignService campaignService;
+     private final CustomExceptionHandler exceptionHandler;
+     private final SchemaColumnDefUtil schemaColumnDefUtil;
++    private final PopulationService populationService;
+ 
+     public BoundaryHierarchySheetGenerator(BoundaryService boundaryService, BoundaryUtil boundaryUtil,
+                                           MDMSService mdmsService, CampaignService campaignService,
+                                           CustomExceptionHandler exceptionHandler,
+-                                          SchemaColumnDefUtil schemaColumnDefUtil) {
++                                          SchemaColumnDefUtil schemaColumnDefUtil,
++                                          PopulationService populationService) {
+         this.boundaryService = boundaryService;
+         this.boundaryUtil = boundaryUtil;
+         this.mdmsService = mdmsService;
+         this.campaignService = campaignService;
+         this.exceptionHandler = exceptionHandler;
+         this.schemaColumnDefUtil = schemaColumnDefUtil;
++        this.populationService = populationService;
+     }
+ 
+     @Override
+@@ -113,11 +117,14 @@ public class BoundaryHierarchySheetGenerator implements IExcelPopulatorSheetGene
+             if (referenceId != null && !referenceId.isEmpty()) {
+                 String campaignNumber = getCampaignNumberFromReferenceId(referenceId, generateResource.getTenantId(), requestInfo);
+                 if (campaignNumber != null && !campaignNumber.isEmpty()) {
+-                    boundaryData = mergeExistingCampaignData(boundaryData, campaignNumber, 
++                    boundaryData = mergeExistingCampaignData(boundaryData, campaignNumber,
+                             generateResource.getTenantId(), requestInfo, schemaColumns);
+                 }
+             }
+-            
++
++            addWorldPopPopulationColumn(boundaryColumns, boundaryData, hierarchyRelations.size(),
++                    tenantId, hierarchyType, requestInfo);
++
+             return SheetGenerationResult.builder()
+                     .columnDefs(boundaryColumns)
+                     .data(boundaryData)
+@@ -281,6 +288,49 @@ public class BoundaryHierarchySheetGenerator implements IExcelPopulatorSheetGene
+         return data;
+     }
+     
++    /**
++     * Adds the locked, reference-only WorldPop population column right after the hidden boundary
++     * code column, when PDI has a run for this hierarchy. Schema columns move one place right.
++     * The column is not part of the target schema, so it is never validated, and processing
++     * removes it before rows are saved.
++     */
++    private void addWorldPopPopulationColumn(List<ColumnDef> columns, List<Map<String, Object>> rows,
++                                             int levelCount, String tenantId, String hierarchyType,
++                                             RequestInfo requestInfo) {
++        List<String> leafCodes = new ArrayList<>();
++        for (Map<String, Object> row : rows) {
++            Object code = row.get(ProcessingConstants.BOUNDARY_CODE_COLUMN_KEY);
++            if (code != null) {
++                leafCodes.add(code.toString());
++            }
++        }
++        Optional<Map<String, Integer>> population =
++                populationService.fetchTotalPopulation(tenantId, hierarchyType, leafCodes, requestInfo);
++        if (population.isEmpty()) {
++            return;
++        }
++
++        int orderNumber = levelCount + 2;
++        for (ColumnDef column : columns) {
++            if (column.getOrderNumber() >= orderNumber) {
++                column.setOrderNumber(column.getOrderNumber() + 1);
++            }
++        }
++        columns.add(orderNumber - 1, ColumnDef.builder()
++                .name(ProcessingConstants.WORLDPOP_POPULATION_COLUMN)
++                .orderNumber(orderNumber)
++                .width(30)
++                .colorHex("#d9d9d9")
++                .freezeColumn(true)
++                .description(ProcessingConstants.WORLDPOP_POPULATION_DESCRIPTION)
++                .build());
++        for (Map<String, Object> row : rows) {
++            Object code = row.get(ProcessingConstants.BOUNDARY_CODE_COLUMN_KEY);
++            row.put(ProcessingConstants.WORLDPOP_POPULATION_COLUMN,
++                    code == null ? null : population.get().get(code.toString()));
++        }
++    }
++
+     private String getCampaignNumberFromReferenceId(String referenceId, String tenantId, RequestInfo requestInfo) {
+         try {
+             log.info("Searching campaign by reference ID: {}", referenceId);
+diff --git a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/ConfigBasedProcessingService.java b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/ConfigBasedProcessingService.java
+index fd0a924..f47f937 100644
+--- a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/ConfigBasedProcessingService.java
++++ b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/ConfigBasedProcessingService.java
+@@ -558,6 +558,8 @@ public class ConfigBasedProcessingService {
+                 // Copy rowData without __actualRowNumber__ to avoid mutating the shared cache
+                 Map<String, Object> rowDataForPersist = new HashMap<>(rowData);
+                 rowDataForPersist.remove("__actualRowNumber__");
++                // Reference-only columns (WorldPop population) are shown in the sheet, never saved
++                ProcessingConstants.REFERENCE_ONLY_COLUMNS.forEach(rowDataForPersist::remove);
+ 
+                 SheetDataTemp sheetDataTemp = SheetDataTemp.builder()
+                         .referenceId(resource.getReferenceId())
+diff --git a/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/PopulationService.java b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/PopulationService.java
+new file mode 100644
+index 0000000..c0bbb24
+--- /dev/null
++++ b/health-services/excel-ingestion/src/main/java/org/egov/excelingestion/service/PopulationService.java
+@@ -0,0 +1,118 @@
++package org.egov.excelingestion.service;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import lombok.extern.slf4j.Slf4j;
++import org.egov.common.contract.request.RequestInfo;
++import org.egov.excelingestion.config.ExcelIngestionConfig;
++import org.springframework.boot.web.client.RestTemplateBuilder;
++import org.springframework.stereotype.Service;
++import org.springframework.web.client.RestTemplate;
++
++import java.time.Duration;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++/**
++ * WorldPop population per boundary code from the PDI service, used only to fill the
++ * reference column of the generated boundary sheet.
++ *
++ * <p>Fail-open: when the feature is off, PDI has no active run for the hierarchy, or PDI is
++ * down or slow, the result is empty and the sheet is generated without the column.
++ */
++@Service
++@Slf4j
++public class PopulationService {
++
++    private static final String TOTAL_GROUP = "total";
++
++    private static final int MAX_ATTEMPTS = 2;
++
++    private final ExcelIngestionConfig config;
++
++    private final RestTemplate restTemplate;
++
++    public PopulationService(ExcelIngestionConfig config, RestTemplateBuilder restTemplateBuilder) {
++        this.config = config;
++        Duration timeout = Duration.ofMillis(config.getPdiSearchTimeoutMs());
++        this.restTemplate = restTemplateBuilder
++                .setConnectTimeout(timeout)
++                .setReadTimeout(timeout)
++                .build();
++    }
++
++    /**
++     * Total population by boundary code from PDI's active run. Codes PDI has no figure for map
++     * to null. Empty when the column should be left out of the sheet.
++     */
++    public Optional<Map<String, Integer>> fetchTotalPopulation(String tenantId, String hierarchyType,
++                                                               List<String> boundaryCodes, RequestInfo requestInfo) {
++        if (!config.isWorldpopColumnEnabled() || boundaryCodes == null || boundaryCodes.isEmpty()) {
++            return Optional.empty();
++        }
++        try {
++            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
++                FetchResult result = fetchFromOneRun(tenantId, hierarchyType, boundaryCodes, requestInfo);
++                if (!result.runChanged()) {
++                    result.population().ifPresent(population -> log.info(
++                            "WorldPop population for {}/{}: {} codes requested, {} returned",
++                            tenantId, hierarchyType, boundaryCodes.size(), population.size()));
++                    return result.population();
++                }
++                log.info("PDI switched its active run during the lookup for {}/{}; retrying", tenantId, hierarchyType);
++            }
++            log.warn("PDI active run kept changing for {}/{}; boundary sheet generated without WorldPop population",
++                    tenantId, hierarchyType);
++            return Optional.empty();
++        } catch (Exception e) {
++            log.warn("WorldPop population unavailable for {}/{}, boundary sheet generated without it: {}",
++                    tenantId, hierarchyType, e.getMessage());
++            return Optional.empty();
++        }
++    }
++
++    /** Fetches every chunk; reports {@code runChanged} when chunks were answered by different runs. */
++    private FetchResult fetchFromOneRun(String tenantId, String hierarchyType, List<String> boundaryCodes,
++                                        RequestInfo requestInfo) {
++        Map<String, Integer> population = new HashMap<>();
++        String runId = null;
++        int chunkSize = Math.max(1, config.getPdiSearchChunkSize());
++        for (int from = 0; from < boundaryCodes.size(); from += chunkSize) {
++            List<String> chunk = boundaryCodes.subList(from, Math.min(from + chunkSize, boundaryCodes.size()));
++            JsonNode response = search(tenantId, hierarchyType, chunk, requestInfo);
++            JsonNode run = response == null ? null : response.path("PopulationRun");
++            if (run == null || run.isNull() || run.isMissingNode()) {
++                log.info("No WorldPop population run for {}/{}; boundary sheet generated without it",
++                        tenantId, hierarchyType);
++                return new FetchResult(Optional.empty(), false);
++            }
++            String chunkRunId = run.path("id").asText();
++            if (runId != null && !runId.equals(chunkRunId)) {
++                return new FetchResult(Optional.empty(), true);
++            }
++            runId = chunkRunId;
++            for (JsonNode row : response.path("BoundaryPopulation")) {
++                JsonNode total = row.path("population").path(TOTAL_GROUP);
++                population.put(row.path("boundaryCode").asText(), total.isNumber() ? total.asInt() : null);
++            }
++        }
++        return new FetchResult(Optional.of(population), false);
++    }
++
++    private record FetchResult(Optional<Map<String, Integer>> population, boolean runChanged) {
++    }
++
++    private JsonNode search(String tenantId, String hierarchyType, List<String> boundaryCodes,
++                            RequestInfo requestInfo) {
++        Map<String, Object> criteria = new HashMap<>();
++        criteria.put("tenantId", tenantId);
++        criteria.put("hierarchyType", hierarchyType);
++        criteria.put("boundaryCodes", boundaryCodes);
++        criteria.put("groups", List.of(TOTAL_GROUP));
++        Map<String, Object> body = new HashMap<>();
++        body.put("RequestInfo", requestInfo);
++        body.put("BoundaryPopulationSearchCriteria", criteria);
++        return restTemplate.postForObject(config.getPdiBoundaryPopulationSearchUrl(), body, JsonNode.class);
++    }
++}
+diff --git a/health-services/excel-ingestion/src/main/resources/application.properties b/health-services/excel-ingestion/src/main/resources/application.properties
+index b0e91b6..3553702 100644
+--- a/health-services/excel-ingestion/src/main/resources/application.properties
++++ b/health-services/excel-ingestion/src/main/resources/application.properties
+@@ -61,6 +61,13 @@ egov.localization.search.path=localization/messages/v1/_search
+ egov.mdms.host=http://localhost:8084/
+ egov.mdms.search.path=egov-mdms-service/v2/_search
+ 
++# PDI Service Configuration: WorldPop reference column in the boundary sheet, off until enabled per environment
++egov.pdi.host=http://localhost:8080/
++egov.pdi.boundary.population.search.path=population/v1/boundary-population/_search
++egov.excel.worldpop-column-enabled=false
++egov.pdi.search.chunk-size=5000
++egov.pdi.search.timeout-ms=3000
++
+ # Campaign Service Configuration
+ egov.campaign.host=http://localhost:8085/
+ egov.campaign.data.search.path=project-factory/v1/data/campaign/_search
+diff --git a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGeneratorTest.java b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGeneratorTest.java
+index b60056b..1b710d6 100644
+--- a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGeneratorTest.java
++++ b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/BoundaryHierarchySheetGeneratorTest.java
+@@ -5,6 +5,7 @@ import org.egov.excelingestion.exception.CustomExceptionHandler;
+ import org.egov.excelingestion.service.BoundaryService;
+ import org.egov.excelingestion.service.CampaignService;
+ import org.egov.excelingestion.service.MDMSService;
++import org.egov.excelingestion.service.PopulationService;
+ import org.egov.excelingestion.util.BoundaryUtil;
+ import org.egov.excelingestion.web.models.*;
+ import org.egov.common.contract.request.RequestInfo;
+@@ -41,7 +42,10 @@ class BoundaryHierarchySheetGeneratorTest {
+     
+     @Mock
+     private CustomExceptionHandler exceptionHandler;
+-    
++
++    @Mock
++    private PopulationService populationService;
++
+     private BoundaryHierarchySheetGenerator generator;
+     private AutoCloseable closeable;
+     
+@@ -51,9 +55,54 @@ class BoundaryHierarchySheetGeneratorTest {
+         org.egov.excelingestion.util.ColumnDefMaker columnDefMaker = new org.egov.excelingestion.util.ColumnDefMaker();
+         org.egov.excelingestion.util.SchemaColumnDefUtil schemaColumnDefUtil = new org.egov.excelingestion.util.SchemaColumnDefUtil(columnDefMaker, exceptionHandler);
+         generator = new BoundaryHierarchySheetGenerator(
+-            boundaryService, boundaryUtil, mdmsService, campaignService, exceptionHandler, schemaColumnDefUtil
++            boundaryService, boundaryUtil, mdmsService, campaignService, exceptionHandler, schemaColumnDefUtil,
++            populationService
+         );
+     }
++
++    // ==================== WORLDPOP REFERENCE COLUMN TESTS ====================
++
++    @Test
++    void testGenerateSheetData_WithWorldPopPopulation_AddsLockedColumnAfterBoundaryCode() {
++        setupBoundaryServiceMocks();
++        setupMDMSServiceMocks();
++        setupBoundaryUtilMocks();
++        setupCampaignServiceMocks();
++        when(populationService.fetchTotalPopulation(any(), any(), eq(List.of("VILLAGE_A1-1")), any()))
++                .thenReturn(Optional.of(Map.of("VILLAGE_A1-1", 4821)));
++
++        SheetGenerationResult result = generator.generateSheetData(createMockConfig(),
++                createGenerateResourceWithProjectType("HCM"), new RequestInfo(), createLocalizationMap());
++
++        List<ColumnDef> columns = result.getColumnDefs();
++        ColumnDef worldPop = columns.get(4);
++        assertEquals("HCM_ADMIN_CONSOLE_BOUNDARY_CODE", columns.get(3).getName());
++        assertEquals(ProcessingConstants.WORLDPOP_POPULATION_COLUMN, worldPop.getName());
++        assertEquals(5, worldPop.getOrderNumber());
++        assertTrue(worldPop.isFreezeColumn(), "WorldPop column must be locked");
++        assertFalse(worldPop.isRequired());
++        assertEquals("#d9d9d9", worldPop.getColorHex());
++        for (ColumnDef schemaColumn : columns.subList(5, columns.size())) {
++            assertTrue(schemaColumn.getOrderNumber() > 5, "schema columns move one place right");
++        }
++        assertEquals(4821, result.getData().get(0).get(ProcessingConstants.WORLDPOP_POPULATION_COLUMN));
++    }
++
++    @Test
++    void testGenerateSheetData_WithoutPopulationRun_LeavesColumnOut() {
++        setupBoundaryServiceMocks();
++        setupMDMSServiceMocks();
++        setupBoundaryUtilMocks();
++        setupCampaignServiceMocks();
++        when(populationService.fetchTotalPopulation(any(), any(), any(), any())).thenReturn(Optional.empty());
++
++        SheetGenerationResult result = generator.generateSheetData(createMockConfig(),
++                createGenerateResourceWithProjectType("HCM"), new RequestInfo(), createLocalizationMap());
++
++        assertTrue(result.getColumnDefs().stream()
++                .noneMatch(column -> ProcessingConstants.WORLDPOP_POPULATION_COLUMN.equals(column.getName())));
++        assertFalse(result.getData().get(0).containsKey(ProcessingConstants.WORLDPOP_POPULATION_COLUMN));
++    }
+     
+     @AfterEach
+     void tearDown() throws Exception {
+diff --git a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/NonAsciiBoundaryCodeTest.java b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/NonAsciiBoundaryCodeTest.java
+index 32442d1..3f3df93 100644
+--- a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/NonAsciiBoundaryCodeTest.java
++++ b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/generator/NonAsciiBoundaryCodeTest.java
+@@ -10,6 +10,7 @@ import org.egov.excelingestion.exception.CustomExceptionHandler;
+ import org.egov.excelingestion.service.BoundaryService;
+ import org.egov.excelingestion.service.CampaignService;
+ import org.egov.excelingestion.service.MDMSService;
++import org.egov.excelingestion.service.PopulationService;
+ import org.egov.excelingestion.util.BoundaryUtil;
+ import org.egov.excelingestion.util.CellProtectionManager;
+ import org.egov.excelingestion.util.ColumnDefMaker;
+@@ -72,7 +73,8 @@ class NonAsciiBoundaryCodeTest {
+         ColumnDefMaker columnDefMaker = new ColumnDefMaker();
+         SchemaColumnDefUtil schemaColumnDefUtil = new SchemaColumnDefUtil(columnDefMaker, exceptionHandler);
+         generator = new BoundaryHierarchySheetGenerator(
+-                boundaryService, boundaryUtil, mdmsService, campaignService, exceptionHandler, schemaColumnDefUtil);
++                boundaryService, boundaryUtil, mdmsService, campaignService, exceptionHandler, schemaColumnDefUtil,
++                mock(PopulationService.class));
+         // createHeaderRows uses only the style helper; config/protection are unused on that path.
+         populator = new ExcelDataPopulator(mock(ExcelIngestionConfig.class), new ExcelStyleHelper(),
+                 mock(CellProtectionManager.class));
+diff --git a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/PopulationServiceTest.java b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/PopulationServiceTest.java
+new file mode 100644
+index 0000000..b79d7cf
+--- /dev/null
++++ b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/PopulationServiceTest.java
+@@ -0,0 +1,152 @@
++package org.egov.excelingestion.service;
++
++import org.egov.common.contract.request.RequestInfo;
++import org.egov.excelingestion.config.ExcelIngestionConfig;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.boot.test.web.client.MockServerRestTemplateCustomizer;
++import org.springframework.boot.web.client.RestTemplateBuilder;
++import org.springframework.http.HttpMethod;
++import org.springframework.http.MediaType;
++import org.springframework.test.web.client.MockRestServiceServer;
++
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.springframework.test.web.client.ExpectedCount.never;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
++import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
++import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
++
++class PopulationServiceTest {
++
++    private static final String URL = "http://pdi/population/v1/boundary-population/_search";
++
++    private ExcelIngestionConfig config;
++
++    private MockServerRestTemplateCustomizer customizer;
++
++    @BeforeEach
++    void setUp() {
++        config = new ExcelIngestionConfig();
++        config.setPdiHost("http://pdi/");
++        config.setPdiBoundaryPopulationSearchPath("population/v1/boundary-population/_search");
++        config.setWorldpopColumnEnabled(true);
++        config.setPdiSearchChunkSize(5000);
++        config.setPdiSearchTimeoutMs(3000);
++        customizer = new MockServerRestTemplateCustomizer();
++    }
++
++    private PopulationService service() {
++        return new PopulationService(config, new RestTemplateBuilder(customizer));
++    }
++
++    private static String response(String runId, String rows) {
++        String run = runId == null ? "null" : "{\"id\":\"" + runId + "\",\"iso3\":\"MOZ\",\"year\":2026}";
++        return "{\"ResponseInfo\":{\"status\":\"successful\"},\"PopulationRun\":" + run
++                + ",\"BoundaryPopulation\":[" + rows + "]}";
++    }
++
++    private static String row(String code, String total, String method) {
++        return "{\"boundaryCode\":\"" + code + "\",\"boundaryType\":\"Village\",\"population\":{\"total\":" + total
++                + "},\"method\":\"" + method + "\"}";
++    }
++
++    @Test
++    void returnsTotalsByCodeWithNullForBoundariesWithoutLocation() {
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(requestTo(URL)).andExpect(method(HttpMethod.POST))
++                .andExpect(jsonPath("$.BoundaryPopulationSearchCriteria.tenantId").value("mz"))
++                .andExpect(jsonPath("$.BoundaryPopulationSearchCriteria.hierarchyType").value("ADMIN"))
++                .andExpect(jsonPath("$.BoundaryPopulationSearchCriteria.groups[0]").value("total"))
++                .andRespond(withSuccess(response("run-1", row("A", "4821", "POINT_VORONOI") + ","
++                        + row("B", "null", "NO_GEOMETRY")), MediaType.APPLICATION_JSON));
++
++        Optional<Map<String, Integer>> result =
++                service.fetchTotalPopulation("mz", "ADMIN", List.of("A", "B", "C"), new RequestInfo());
++
++        server.verify();
++        assertTrue(result.isPresent());
++        assertEquals(4821, result.get().get("A"));
++        assertTrue(result.get().containsKey("B"));
++        assertNull(result.get().get("B"));
++        assertTrue(!result.get().containsKey("C"), "codes PDI does not know stay absent");
++    }
++
++    @Test
++    void noActiveRunMeansNoColumn() {
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(requestTo(URL)).andRespond(withSuccess(response(null, ""), MediaType.APPLICATION_JSON));
++
++        assertTrue(service.fetchTotalPopulation("mz", "ADMIN", List.of("A"), new RequestInfo()).isEmpty());
++        server.verify();
++    }
++
++    @Test
++    void pdiFailureIsSwallowed() {
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(requestTo(URL)).andRespond(withServerError());
++
++        assertTrue(service.fetchTotalPopulation("mz", "ADMIN", List.of("A"), new RequestInfo()).isEmpty());
++        server.verify();
++    }
++
++    @Test
++    void disabledFeatureMakesNoCall() {
++        config.setWorldpopColumnEnabled(false);
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(never(), requestTo(URL));
++
++        assertTrue(service.fetchTotalPopulation("mz", "ADMIN", List.of("A"), new RequestInfo()).isEmpty());
++        server.verify();
++    }
++
++    @Test
++    void largeCodeListsAreSplitIntoChunks() {
++        config.setPdiSearchChunkSize(2);
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(requestTo(URL)).andExpect(jsonPath("$.BoundaryPopulationSearchCriteria.boundaryCodes.length()").value(2))
++                .andRespond(withSuccess(response("run-1", row("A", "1", "ZONAL_UPLOAD") + "," + row("B", "2", "ZONAL_UPLOAD")),
++                        MediaType.APPLICATION_JSON));
++        server.expect(requestTo(URL)).andExpect(jsonPath("$.BoundaryPopulationSearchCriteria.boundaryCodes.length()").value(1))
++                .andRespond(withSuccess(response("run-1", row("C", "3", "ZONAL_UPLOAD")), MediaType.APPLICATION_JSON));
++
++        Optional<Map<String, Integer>> result =
++                service.fetchTotalPopulation("mz", "ADMIN", List.of("A", "B", "C"), new RequestInfo());
++
++        server.verify();
++        assertEquals(Map.of("A", 1, "B", 2, "C", 3), result.orElseThrow());
++    }
++
++    @Test
++    void runSwitchBetweenChunksIsRetriedSoTheSheetNeverMixesRuns() {
++        config.setPdiSearchChunkSize(1);
++        PopulationService service = service();
++        MockRestServiceServer server = customizer.getServer();
++        server.expect(requestTo(URL)).andRespond(withSuccess(response("run-1", row("A", "1", "ZONAL_UPLOAD")),
++                MediaType.APPLICATION_JSON));
++        server.expect(requestTo(URL)).andRespond(withSuccess(response("run-2", row("B", "20", "ZONAL_UPLOAD")),
++                MediaType.APPLICATION_JSON));
++        server.expect(requestTo(URL)).andRespond(withSuccess(response("run-2", row("A", "10", "ZONAL_UPLOAD")),
++                MediaType.APPLICATION_JSON));
++        server.expect(requestTo(URL)).andRespond(withSuccess(response("run-2", row("B", "20", "ZONAL_UPLOAD")),
++                MediaType.APPLICATION_JSON));
++
++        Optional<Map<String, Integer>> result =
++                service.fetchTotalPopulation("mz", "ADMIN", List.of("A", "B"), new RequestInfo());
++
++        server.verify();
++        assertEquals(Map.of("A", 10, "B", 20), result.orElseThrow());
++    }
++}
+diff --git a/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/ReferenceOnlyColumnPersistenceTest.java b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/ReferenceOnlyColumnPersistenceTest.java
+new file mode 100644
+index 0000000..31a7493
+--- /dev/null
++++ b/health-services/excel-ingestion/src/test/java/org/egov/excelingestion/service/ReferenceOnlyColumnPersistenceTest.java
+@@ -0,0 +1,66 @@
++package org.egov.excelingestion.service;
++
++import org.egov.common.contract.request.RequestInfo;
++import org.egov.common.producer.Producer;
++import org.egov.excelingestion.config.ExcelIngestionConfig;
++import org.egov.excelingestion.config.KafkaTopicConfig;
++import org.egov.excelingestion.config.ProcessingConstants;
++import org.egov.excelingestion.exception.CustomExceptionHandler;
++import org.egov.excelingestion.web.models.ProcessResource;
++import org.egov.excelingestion.web.models.SheetDataTemp;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.context.ApplicationContext;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++/**
++ * The WorldPop population column is reference-only: it must never reach eg_ex_in_sheet_data_temp.
++ */
++class ReferenceOnlyColumnPersistenceTest {
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void worldPopColumnIsRemovedBeforeRowsArePublished() {
++        Producer producer = mock(Producer.class);
++        KafkaTopicConfig topics = mock(KafkaTopicConfig.class);
++        when(topics.getSheetDataSaveTopic()).thenReturn("save-sheet-data-temp");
++        ConfigBasedProcessingService service = new ConfigBasedProcessingService(
++                mock(MDMSConfigService.class), mock(CustomExceptionHandler.class), mock(MDMSService.class),
++                mock(ApplicationContext.class), producer, topics, mock(ExcelIngestionConfig.class),
++                mock(OutsideHouseholdTypeMasterService.class));
++
++        Map<String, Object> row = new HashMap<>();
++        row.put("__actualRowNumber__", 3);
++        row.put(ProcessingConstants.BOUNDARY_CODE_COLUMN_KEY, "MZ_NAMPULA_MOMA_01");
++        row.put(ProcessingConstants.WORLDPOP_POPULATION_COLUMN, 4821);
++        row.put("TARGET_POPULATION", 4000);
++        ProcessResource resource = ProcessResource.builder().tenantId("mz").referenceId("campaign-1")
++                .fileStoreId("file-1").build();
++
++        ReflectionTestUtils.invokeMethod(service, "saveSheetDataToTemp", "HCM_ADMIN_CONSOLE_BOUNDARY_DATA",
++                List.of(row), resource, Map.of(), new RequestInfo());
++
++        ArgumentCaptor<Map<String, Object>> message = ArgumentCaptor.forClass(Map.class);
++        verify(producer).push(eq("mz"), any(), message.capture());
++        List<SheetDataTemp> saved = (List<SheetDataTemp>) message.getValue().get("sheetData");
++        Map<String, Object> rowJson = saved.get(0).getRowJson();
++        assertFalse(rowJson.containsKey(ProcessingConstants.WORLDPOP_POPULATION_COLUMN));
++        assertFalse(rowJson.containsKey("__actualRowNumber__"));
++        assertEquals(4000, rowJson.get("TARGET_POPULATION"));
++        assertEquals(3, saved.get(0).getRowNumber());
++        assertTrue(row.containsKey(ProcessingConstants.WORLDPOP_POPULATION_COLUMN), "parsed data is not mutated");
++    }
++}
